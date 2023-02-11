@@ -2,7 +2,7 @@
 
 These scripts exist to automate the setup and teardown of C2 infrastructure for penetration test engagments, such as EC2 instances and supporting cloud network infrastructure. All infrastructure items are tagged with the engagement lead and customer name, enabling easy identification and decommission after an engagement. 
 
-Note: the usage instructions below assume you are have Docker installed and working on Linux (https://docs.docker.com/desktop/install/linux-install/) or on Windows using WSL2 (https://docs.docker.com/desktop/install/windows-install/).
+Note: the usage instructions below assume you are have installed [Docker on Linux](https://docs.docker.com/desktop/install/linux-install/) or on [Windows using WSL2](https://docs.docker.com/desktop/install/windows-install/).
 
 At a high level, this project has five main components:
 
@@ -29,7 +29,7 @@ At a high level, this project has five main components:
 
 4. Copy `Option 2`
 
-5. Paste the credentials  into the `~/.aws/credentials` file. Make sure to replace the first line `[xxxxxx_xxxxxxxxxxxxx]` with `[default]` if it is different.
+5. Paste the credentials  into the `~/.aws/credentials` file. Make sure to replace the first line `[my_user_profile_name]` with `[default]` if it is different.
     ```sh
     user@ubuntu:~$ vi ~/.aws/credentials
     ```
@@ -124,4 +124,4 @@ Example:
     ```
 
 ### AWS profiles
-Yes, it's pretty annoying to have to change the first line of your `~/.aws/credentials` to `[default]`. One would assume we can set that to the standard `[546135455042_AWSPowerUserAccess]` profile, but for some reason, this causes our playbooks to fail to authenticate. There's probably a workaround, but we haven't found it yet. 
+Yes, it's pretty annoying to have to change the first line of your `~/.aws/credentials` to `[default]`. One would assume we can set that to the standard `[my_user]` profile, but for some reason, this causes our playbooks to fail to authenticate. There's probably a workaround, but we haven't found it yet. 
