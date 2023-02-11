@@ -1,0 +1,18 @@
+Host *compute*.amazonaws.com
+  User ubuntu
+  StrictHostKeyChecking no
+  Port 22
+  IdentityFile {{ public_key }}
+Host front_{{ customer }}
+  HostName {{ front_public_ip }}
+  HostName {{ front_dns_name }}
+  StrictHostKeyChecking no
+  User ubuntu
+  IdentityFile {{ public_key }}
+Host team_{{ customer }}
+  Hostname {{ team_private_ip }}
+  ProxyJump front_{{ customer }}
+  StrictHostKeyChecking no
+  LocalForward 50050 localhost:50050
+  User ubuntu
+  IdentityFile {{ public_key }}

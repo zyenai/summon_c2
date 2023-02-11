@@ -1,0 +1,80 @@
+# Playbook to remove AWS C2 infrastructure
+- hosts: localhost
+  tasks:
+  - include_vars: vars.yml
+
+# Get EC2 variables
+  - name: Get info from EC2 instances
+    amazon.aws.ec2_instance_info:
+      region: us-east-1
+      filters:
+        "tag:user": "{{ engagement_lead }}"
+        "tag:customer": "{{ customer }}"
+        instance-state-name: [ "pending", "running" ]
+    register: ec2
+
+# Print C2 infrastructure info
+  - name: Print C2 infrastructure info
+    ansible.builtin.debug:
+      msg: 
+        - Teamserver Instance ID {{ ec2.instances[0]['instance_id'] }}
+        - Redirector Instance ID {{ ec2.instances[1]['instance_id'] }}
+        - VPC {{ ec2.instances[0]['vpc_id'] }}
+        - Teamserver SG Group ID {{ ec2.instances[0]['security_groups'][0]['group_id'] }}
+        - Redirector SG Group ID {{ ec2.instances[1]['security_groups'][0]['group_id'] }}
+  - set_fact:
+      teamserver_instance_id: "{{ ec2.instances[0]['instance_id'] }}"
+      redirector_instance_id: "{{ ec2.instances[1]['instance_id'] }}"
+      vpc_id: "{{ ec2.instances[0]['vpc_id'] }}"
+      teamserver_sg_id: "{{ ec2.instances[0]['security_groups'][0]['group_id'] }}"
+      redirector_sg_id: "{{ ec2.instances[1]['security_groups'][0]['group_id'] }}"
+
+# Terminate Teamserver
+  - name: Terminate Teamserver
+    amazon.aws.ec2_instance:
+      region: us-east-1
+      instance_ids: "{{ teamserver_instance_id }}"
+      state: absent  
+# Terminate Redirector
+  - name: Terminate Redirector
+    amazon.aws.ec2_instance:
+      region: us-east-1
+      instance_ids: "{{ redirector_instance_id }}"
+      state: absent
+# Remove Security Groups 
+  - name: Delete Teamserver Security Group
+    amazon.aws.ec2_group:
+      region: us-east-1
+      group_id: "{{ teamserver_sg_id }}"
+      state: absent
+  - name: Delete Redirector Security Group
+    amazon.aws.ec2_group:
+      region: us-east-1
+      group_id: "{{ redirector_sg_id }}"
+      state: absent
+# Delete Internet Gateway
+  - name: Delete internet gateway
+    community.aws.ec2_vpc_igw:
+      region: us-east-1
+      vpc_id: "{{ vpc_id }}"
+      state: absent
+# Delete Subnet
+  - name: Delete Subnet
+    amazon.aws.ec2_vpc_subnet:
+      region: us-east-1
+      vpc_id: "{{ vpc_id }}"
+      cidr: "{{ subnet_cidr }}"
+      state: absent
+# Delete Route Table
+  - name: Delete Route Table
+    community.aws.ec2_vpc_route_table:
+      region: us-east-1
+      vpc_id: "{{ vpc_id }}"
+      state: absent
+# # Delete VPC - currently errors out because RTB is Main RTB - see README.md
+#   - name: Delete AWS VPC
+#     amazon.aws.ec2_vpc_net:
+#       name: "{{ engagement_lead }}_{{ customer }}_VPC"
+#       cidr_block: "{{ subnet_cidr }}"
+#       region: us-east-1
+#       state: absent

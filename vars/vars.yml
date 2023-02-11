@@ -1,0 +1,9 @@
+customer: <short_customer_name> 
+engagement_lead: <engagement_lead_name> 
+image_id: <ami-019bd4544c394e302> 
+key_name: <ssh_key_name>
+c2_domain: <subdomain>.domain.com
+aws_profile: <default>
+public_key: "~/.ssh/<ssh_key_name>"
+local_ip: <X.X.X.X/32>
+subnet_cidr: <X.X.X.X/24>

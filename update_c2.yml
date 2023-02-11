@@ -1,0 +1,152 @@
+# Update packages and configure our C2 infrastructure
+- hosts: localhost
+  vars_prompt:
+    - name: cobalt_strike_license
+      prompt: What cobalt strike license should I use?
+      private: no
+  tasks:
+  - include_vars: vars.yml
+# Get EC2 variables
+  - name: Get info from EC2 instances
+    amazon.aws.ec2_instance_info:
+      region: us-east-1
+      filters:
+        "tag:user": "{{ engagement_lead }}"
+        "tag:customer": "{{ customer }}"
+        instance-state-name: [ "pending", "running" ]
+    register: ec2  
+# Set hostvars  
+  - set_fact:
+      team_private_ip: "{{ ec2.instances[0]['private_ip_address'] }}"
+      team_public_ip: "{{ ec2.instances[0]['public_ip_address'] }}"
+      front_private_ip: "{{ ec2.instances[1]['private_ip_address'] }}"
+      front_public_ip: "{{ ec2.instances[1]['public_ip_address'] }}"
+      front_dns_name: "{{ ec2.instances[1]['public_dns_name'] }}"
+      glob_customer: "{{ customer }}"
+      cobalt: "{{ cobalt_strike_license }}"
+
+# Update packages on Teamserver and Redirector
+- hosts:
+  - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}"
+  become: True
+  tasks:
+  - name: Update all packages to their latest version
+    apt:
+      name: "*"
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+  - name: Upgrade the OS (apt-get dist-upgrade)
+    apt:
+      upgrade: dist
+  - name: Update repositories cache and install "foo" package
+    apt:
+      pkg:
+      - rsync
+      - ca-certificates
+      - openjdk-11-jdk
+      - screen
+      - tmux
+      - net-tools
+      - socat
+      state: present
+      update_cache: yes
+      cache_valid_time: 6
+
+# Copy Cobalt Strike license & update Cobalt Strike (Cobalt Strike binaries are already packaged on AMI)
+- hosts:
+  - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}:&tag_type_c2_teamserver"
+  become: True
+  tasks:
+  - include_vars: vars.yml
+  - name: Copy Cobalt Strike License to Team Server
+    template:
+      src: "./files/.cobaltstrike.license"
+      dest: .cobaltstrike.license
+  - name: Update Cobalt Strike
+    ansible.builtin.expect: 
+      timeout: 180
+      chdir: /home/ubuntu/Tools/cobaltstrike
+      command: ./update
+      responses:
+        (?i)Please enter your license key: "{{ hostvars['localhost']['cobalt'] }}"
+
+# Configure DNS/HTTP/HTTPS forwarding on Redirector
+- hosts:
+  - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}:&tag_type_c2_front"
+  become: True
+  tasks:
+    - include_vars: vars.yml
+    - name: Update repositories cache and install base packages
+      apt:
+        pkg:
+        - dnsmasq
+        state: present
+        update_cache: yes
+        cache_valid_time: 6
+    - name: Copy dnsmasq config to server
+      template:
+        src: "./files/dnsmasq.conf"
+        dest: "/etc/dnsmasq.conf"
+    - name: Copy resolv.conf to server
+      copy:
+        src: "./files/resolv.conf"
+        dest: "/etc/resolv.conf"
+    - service_facts:
+    - name: stop and disable systemd-resolved
+      service:
+        name: systemd-resolved
+        state: stopped
+        enabled: false
+    - name: start and enable dnsmasq
+      service:
+        name: dnsmasq
+        state: started
+        enabled: true
+    - name: Forward port 80 to team server
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        # in_interface: ens5
+        protocol: tcp
+        match: tcp
+        destination_port: 80
+        jump: DNAT
+        to_destination: "{{ hostvars['localhost']['team_private_ip'] }}"
+        comment: Redirect web traffic to team server
+      become: yes
+    - name: Forward port 443 to team server
+      ansible.builtin.iptables:
+        table: nat
+        chain: PREROUTING
+        # in_interface: ens5
+        protocol: tcp
+        match: tcp
+        destination_port: 443
+        jump: DNAT
+        to_destination: "{{ hostvars['localhost']['team_private_ip'] }}"
+        comment: Redirect web traffic to team server
+      become: yes
+    - name: Masquerade to team server
+      ansible.builtin.iptables:
+        chain: FORWARD
+        jump: ACCEPT
+      become: yes
+    - name: Masquerade to team server
+      ansible.builtin.iptables:
+        table: nat
+        chain: POSTROUTING
+        # out_interface: ens5
+        jump: MASQUERADE
+      become: yes
+    - name: Masquerade to team server
+      ansible.builtin.iptables:
+        chain: FORWARD
+        policy: ACCEPT
+        jump: ACCEPT
+      become: yes
+    # Set ip forwarding on in /proc and verify token value with the sysctl command
+    - ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: yes
