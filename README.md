@@ -23,13 +23,13 @@ At a high level, this project has five main components:
     user@ubuntu:~$ touch ~/.aws/credentials
     ```
 
-2. Navigate to the [AWS console](https://d-9067771c16.awsapps.com/start#/)
+2. Navigate to the [AWS console](https://aws.amazon.com/console/)
 
-3. Expand the `aws-workloads-tocpentest-prod` directory, then select `Command line or programmtic access`
+3. Expand the profile you wish to use, then select `Command line or programmtic access`
 
 4. Copy `Option 2`
 
-5. Paste the credentials  into the `~/.aws/credentials` file. Make sure to replace the first line `[xxxxxx_xxxxxxxxxxxxx]` with `[default]`
+5. Paste the credentials  into the `~/.aws/credentials` file. Make sure to replace the first line `[xxxxxx_xxxxxxxxxxxxx]` with `[default]` if it is different.
     ```sh
     user@ubuntu:~$ vi ~/.aws/credentials
     ```
@@ -83,35 +83,16 @@ At a high level, this project has five main components:
 
 11. If playbook runs successfully, you should see an output like this with no `failed` statuses
     ```sh
-    TASK [Print C2 infrastructure info] ************************************************************************
-    ok: [localhost] => {
-        "msg": [
-            "VPC vpc-0050cfafe0a5b3eb5",
-            "Subnet subnet-00fed9391200fb100",
-            "Subnet CIDR 10.10.10.0/24",
-            "Gateway ID igw-0ad81872a37a78a79",
-            "SG for Teamserver sg-08e808f92ac539259",
-            "SG for Front sg-0565f952649466a3c",
-            "Teamserver Private IP 10.10.10.23",
-            "Teamserver Public IP 54.226.131.47",
-            "Teamserver Public DNS ec2-54-226-131-47.compute-1.amazonaws.com",
-            "Redirector Private IP 10.10.10.95",
-            "Redirector Public IP 34.234.83.91",
-            "Redirector Public DNS ec2-34-234-83-91.compute-1.amazonaws.com"
-        ]
-    }
-
+    ...
     PLAY RECAP ************************************************************************************************
     localhost: ok=9    changed=3    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
 
     ansible@2f9c3e56c6f2:/ansible$
     ```
 
-12. Confirm Front and Teamserver instance creation in [AWS EC2 Management Console](https://us-east-1.console.aws.amazon.com/ec2/home?region=us-east-1#Instances:instanceState=running):
+13. To update OS packages, update and license Cobalt Strke, and set up HTTP/HTTPS/DNS forwarding, run the `update_c2.yml` playbook. 
 
-14. To update OS packages, update and license Cobalt Strke, and set up HTTP/HTTPS/DNS forwarding, run the `update_c2.yml` playbook. 
-
-15. To remove all the C2 infrastructure you have created, run the `remove_c2.yml` playbook. 
+14. To remove all the C2 infrastructure you have created, run the `remove_c2.yml` playbook. 
 
 # To Do: 
 
