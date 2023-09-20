@@ -1,6 +1,8 @@
-# C2 Deploy
+# C2 Invocation
 
-These scripts exist to automate the setup and teardown of C2 infrastructure for penetration test engagments, such as EC2 instances and supporting cloud network infrastructure. All infrastructure items are tagged with the engagement lead and customer name, enabling easy identification and decommission after an engagement. 
+> Warptime C2 Deployment! Ahriman would be proud. 
+
+These scripts exist to automate the setup and teardown of C2 infrastructure for penetration test engagments. All infrastructure items are tagged with the engagement lead and customer name, enabling easy identification and decommission after an engagement. 
 
 Note: the usage instructions below assume you are have installed [Docker on Linux](https://docs.docker.com/desktop/install/linux-install/) or on [Windows using WSL2](https://docs.docker.com/desktop/install/windows-install/).
 
