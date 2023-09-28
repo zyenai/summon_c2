@@ -1,6 +1,6 @@
 # C2 Invocation
 
-> Warptime C2 Deployment! Ahriman would be proud. 
+> Summon your C2 infrastructure from the warp! Ahriman would be proud. 
 
 These scripts exist to automate the setup and teardown of C2 infrastructure for penetration test engagments. All infrastructure items are tagged with the engagement lead and customer name, enabling easy identification and decommission after an engagement. 
 
