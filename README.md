@@ -130,16 +130,16 @@ sudo chmod 666 /var/run/docker.sock
     ┌──(kali㉿kali)-[~/dragos_c2_deploy]
     └─$ cat vars/vars.yml 
     # ./group_vars/all.yml
-    ansible_ssh_private_key_file: ~/.ssh/twebb_aws
+    ansible_ssh_private_key_file: ~/.ssh/aws_private_key
     ansible_user: ubuntu
     aws_profile: 546135455042_AWSPowerUserAccess
     aws_region: us-east-1
     availability_zone: us-east-1a
-    c2_subdomain: lol.dragoat.com
+    c2_subdomain: lol.gothos.com
     customer: dragos
-    engagement_lead: twebb
+    engagement_lead: anomander_rake
     image_id: ami-007855ac798b5175e
-    key_name: twebb_aws
+    key_name: aws_private_key
     local_ip: 158.146.20.99/32
     subnet_cidr: 10.6.66.0/24
     ```
