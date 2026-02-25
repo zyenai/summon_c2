@@ -1,80 +1,163 @@
 # Playbook to remove AWS C2 infrastructure
 - hosts: localhost
   tasks:
-  - include_vars: vars.yml
 
 # Get EC2 variables
-  - name: Get info from EC2 instances
+  - name: Get info from Teamserver
     amazon.aws.ec2_instance_info:
-      region: us-east-1
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
       filters:
         "tag:user": "{{ engagement_lead }}"
         "tag:customer": "{{ customer }}"
+        "tag:type": "c2_teamserver"
         instance-state-name: [ "pending", "running" ]
-    register: ec2
+    register: teamserver
+
+  - name: Get info from Redirector
+    amazon.aws.ec2_instance_info:
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
+      filters:
+        "tag:user": "{{ engagement_lead }}"
+        "tag:customer": "{{ customer }}"
+        "tag:type": "c2_front"
+        instance-state-name: [ "pending", "running" ]
+    register: redirector
 
 # Print C2 infrastructure info
   - name: Print C2 infrastructure info
     ansible.builtin.debug:
       msg: 
-        - Teamserver Instance ID {{ ec2.instances[0]['instance_id'] }}
-        - Redirector Instance ID {{ ec2.instances[1]['instance_id'] }}
-        - VPC {{ ec2.instances[0]['vpc_id'] }}
-        - Teamserver SG Group ID {{ ec2.instances[0]['security_groups'][0]['group_id'] }}
-        - Redirector SG Group ID {{ ec2.instances[1]['security_groups'][0]['group_id'] }}
+        - Teamserver Instance ID {{ teamserver.instances[0]['instance_id'] }}
+        - Redirector Instance ID {{ redirector.instances[0]['instance_id'] }}
+        - VPC {{ teamserver.instances[0]['vpc_id'] }}
+        - Teamserver SG Group ID {{ teamserver.instances[0]['security_groups'][0]['group_id'] }}
+        - Redirector SG Group ID {{ redirector.instances[0]['security_groups'][0]['group_id'] }}  
   - set_fact:
-      teamserver_instance_id: "{{ ec2.instances[0]['instance_id'] }}"
-      redirector_instance_id: "{{ ec2.instances[1]['instance_id'] }}"
-      vpc_id: "{{ ec2.instances[0]['vpc_id'] }}"
-      teamserver_sg_id: "{{ ec2.instances[0]['security_groups'][0]['group_id'] }}"
-      redirector_sg_id: "{{ ec2.instances[1]['security_groups'][0]['group_id'] }}"
+      teamserver_instance_id: "{{ teamserver.instances[0]['instance_id'] }}"
+      redirector_instance_id: "{{ redirector.instances[0]['instance_id'] }}"
+      vpc_id: "{{ teamserver.instances[0]['vpc_id'] }}"
+      teamserver_sg_id: "{{ teamserver.instances[0]['security_groups'][0]['group_id'] }}"
+      redirector_sg_id: "{{ redirector.instances[0]['security_groups'][0]['group_id'] }}"
+      team_private_ip: "{{ teamserver.instances[0]['private_ip_address'] }}"
+      team_public_ip: "{{ teamserver.instances[0]['public_ip_address'] }}"
+      front_private_ip: "{{ redirector.instances[0]['private_ip_address'] }}"
+      front_public_ip: "{{ redirector.instances[0]['public_ip_address'] }}"
+      front_dns_name: "{{ redirector.instances[0]['public_dns_name'] }}"
+      glob_customer: "{{ customer }}"
 
 # Terminate Teamserver
   - name: Terminate Teamserver
     amazon.aws.ec2_instance:
-      region: us-east-1
+      region: "{{ aws_region }}"
       instance_ids: "{{ teamserver_instance_id }}"
+      profile: "{{ aws_profile }}"
       state: absent  
+
 # Terminate Redirector
   - name: Terminate Redirector
     amazon.aws.ec2_instance:
-      region: us-east-1
+      region: "{{ aws_region }}"
       instance_ids: "{{ redirector_instance_id }}"
+      profile: "{{ aws_profile }}"
       state: absent
+# Deregister our AMI (not sure this is needed)
+  # - name: deregister ami
+  #   amazon.aws.ec2_ami:
+  #     image_id: "{{ image_id }}"
+  #     delete_snapshot: True
+  #     state: absent
+
 # Remove Security Groups 
   - name: Delete Teamserver Security Group
     amazon.aws.ec2_group:
-      region: us-east-1
+      region: "{{ aws_region }}"
       group_id: "{{ teamserver_sg_id }}"
+      profile: "{{ aws_profile }}"
       state: absent
   - name: Delete Redirector Security Group
     amazon.aws.ec2_group:
-      region: us-east-1
+      region: "{{ aws_region }}"
       group_id: "{{ redirector_sg_id }}"
+      profile: "{{ aws_profile }}"
       state: absent
+
 # Delete Internet Gateway
   - name: Delete internet gateway
     community.aws.ec2_vpc_igw:
-      region: us-east-1
+      region: "{{ aws_region }}"
       vpc_id: "{{ vpc_id }}"
+      profile: "{{ aws_profile }}"
       state: absent
+
 # Delete Subnet
   - name: Delete Subnet
     amazon.aws.ec2_vpc_subnet:
-      region: us-east-1
+      region: "{{ aws_region }}"
       vpc_id: "{{ vpc_id }}"
       cidr: "{{ subnet_cidr }}"
       state: absent
+      profile: "{{ aws_profile }}"
+
+# Get Route Table variables
+  - name: Get info from EC2 route tables
+    amazon.aws.ec2_vpc_route_table_info:
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
+      filters:
+        "tag:user": "{{ engagement_lead }}"
+        "tag:customer": "{{ customer }}"
+    register: rtbls
+
+# Print C2 infrastructure info
+  - name: Print C2 infrastructure info
+    ansible.builtin.debug:
+      msg: 
+        - "VPC {{ rtbls.route_tables[0]['vpc_id'] }}"
+        - "route_table_id {{ rtbls.route_tables[0]['route_table_id']  }}"
+  - set_fact:
+      vpc_id: "}{{ rtbls.route_tables[0]['vpc_id'] }}"
+      rtbl_id: "{{ rtbls.route_tables[0]['route_table_id']  }}"
+
 # Delete Route Table
   - name: Delete Route Table
     community.aws.ec2_vpc_route_table:
-      region: us-east-1
+      region: "{{ aws_region }}"
       vpc_id: "{{ vpc_id }}"
+      lookup: id
+      route_table_id: "{{ rtbl_id }}"
+      purge_subnets: true
+      purge_tags: true
       state: absent
-# # Delete VPC - currently errors out because RTB is Main RTB - see README.md
-#   - name: Delete AWS VPC
-#     amazon.aws.ec2_vpc_net:
-#       name: "{{ engagement_lead }}_{{ customer }}_VPC"
-#       cidr_block: "{{ subnet_cidr }}"
-#       region: us-east-1
-#       state: absent
+      profile: "{{ aws_profile }}"
+
+# Delete VPC
+  - name: Delete AWS VPC
+    amazon.aws.ec2_vpc_net:
+      name: "{{ engagement_lead }}_{{ customer }}_VPC"
+      cidr_block: "{{ subnet_cidr }}"
+      purge_cidrs: true
+      region: "{{ aws_region }}"
+      state: absent
+      profile: "{{ aws_profile }}"
+
+# Delete Route 53 DNS entries
+  - name: Delete A record
+    amazon.aws.route53:
+      profile: "{{ aws_profile }}"
+      state: absent
+      zone: dragoat.com
+      record: "{{ customer }}.dragoat.com"  
+      value: "{{ redirector.instances[0]['public_ip_address'] }}"
+      type: A
+      ttl: 60
+  - name: Delete NS record 
+    amazon.aws.route53:
+      profile: "{{ aws_profile }}"
+      state: absent
+      zone: dragoat.com
+      record: "{{ c2_subdomain }}"
+      value: "{{ customer }}.dragoat.com"
+      type: NS
+      ttl: 60

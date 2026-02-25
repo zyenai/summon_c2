@@ -1,0 +1,5 @@
+You are on the Kyberite Redirector
+Private IP:
+Public IP:
+Sanity check: run 'pgrep socat' to make sure HTTP/HTTPs is being redirected to the Teamserver. 
+Happy hacking!

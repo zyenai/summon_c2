@@ -1,0 +1,142 @@
+- hosts:
+  - tag_customer_{{ customer }}
+  vars_prompt:
+    - name: customer
+      prompt: What customer is this for?
+      private: no
+  vars:
+  - jump_host_user: 'ubuntu'
+  - key_path: '../auto_ssh/files/ssh_keys'
+  - server_key: '{{ customer }}_pivot_key'
+  - jump_host_dns_entry: '{{ customer }}.help.ifhacking.org'
+  - server_ssh_file: "{{ key_path + server_key }}"
+  - beac_pub_key: '{{ key_path }}/pi_{{ customer }}_beacon_key.pub'
+  - pivot_port: 20224
+  - monitor_port: 7224
+  become: True
+  tasks:
+  - name: Update all packages to their latest version
+    apt:
+      name: "*"
+      state: latest
+      update_cache: yes
+      cache_valid_time: 3600
+  - name: Upgrade the OS (apt-get dist-upgrade)
+    apt:
+      upgrade: dist
+  - name: Update repositories cache and install "foo" package
+    apt:
+      pkg:
+      - rsync
+      - ca-certificates
+      - autossh
+      state: present
+      update_cache: yes
+      cache_valid_time: 6
+  - name: Ensure group 'autossh' exists
+    ansible.builtin.group:
+      name: autossh
+      state: present
+  - name: Add the user 'autossh' without a shell
+    ansible.builtin.user:
+      append: yes
+      name: autossh
+      shell: /bin/false
+      home: /home/autossh/
+      groups: autossh
+      create_home: yes
+      password: '*'
+      state: present
+    register: user_changed
+  - name: Set authorized key for user ubuntu copying it from current user .ssh directory
+    authorized_key:
+      user: ubuntu
+      state: present
+      key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/{{ customer }}_user_beacon_key.pub') }}"
+  - name: Set authorized key for user autossh copying it from ssh_keys directory
+    authorized_key:
+      user: autossh
+      state: present
+      key: "{{ lookup('file', item) }}"
+    with_fileglob:
+    - "{{ key_path }}/{{ customer }}_beacon_key.pub"
+  - name: Copy the sshd public key
+    copy:
+      src: "{{ key_path }}/{{ customer }}_beacon_key.pub"
+      dest: /home/autossh/.ssh/
+      owner: autossh
+      group: autossh
+      mode: '0600'
+  - name: Copy the sshd public key
+    copy:
+      src: "{{ beac_pub_key }}"
+      dest: /home/autossh/.ssh/
+      owner: autossh
+      group: autossh
+      mode: '0600'
+  # Still need to configure user to recieve the ssh session
+  # Goal is to have both client and pivot box ssh key auth but only do port forwards.
+  # Ideally this would mean even if the key on the box was compromised it can't be used
+  # against us to immediately pwn our pivot.
+  # - name: copy the autossh file
+  #   template:
+  #     src: ./files/autossh
+  #     dest: /etc/default/autossh
+  #     owner: root
+  #     group: root
+  #     mode: u=rw,g=r,o=r
+  # - name: copy the ssh config file
+  #   template:
+  #     src: ./files/config
+  #     dest: /home/autossh/.ssh/
+  #     owner: autossh
+  #     group: autossh
+  #     mode: u=rw,g=r,o=r
+  # - name: copy the autossh service file
+  #   copy:
+  #     src: ./files/autossh.service
+  #     dest: /lib/systemd/system/autossh.service
+  #     owner: root
+  #     group: root
+  #     mode: u=rw,g=r,o=r
+  # - name: copy the autossh conf file
+  #   copy:
+  #     src: ./files/autossh.conf
+  #     dest: /usr/lib/tmpfiles.d/autossh.conf
+  #     owner: root
+  #     group: root
+  #     mode: u=rw,g=r,o=r
+  # - name: create the autossh log directory
+  #   file:
+  #     path: /var/run/autossh/
+  #     owner: root
+  #     group: root
+  #     mode: u=rw,g=r,o=r
+  #     state: directory
+  # - name: touch the autossh log file
+  #   file:
+  #     path: /var/run/autossh/user_ssh_error.out
+  #     owner: root
+  #     group: root
+  #     mode: u=rw,g=rw,o=rw
+  #     state: touch
+  # - name: copy the autossh ssh key file
+  #   copy:
+  #     src: "{{ server_ssh_file }}"
+  #     dest: "{{ '/home/autossh/.ssh/' + server_key }}"
+  #     owner: autossh
+  #     group: autossh
+  #     mode: u=rw,g=,o=
+  # - name: Set authorized key for user ubuntu copying it from current user .ssh directory
+  #   authorized_key:
+  #     user: autossh
+  #     state: present
+  #     key: "{{ lookup('file', beac_pub_key) }}"
+  #     # key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/kali_phn.pub') }}"
+  # - name: copy the sshd config file
+  #   copy:
+  #     src: ./files/sshd_config
+  #     dest: /etc/ssh/sshd_config
+  #     owner: root
+  #     group: root
+  #     mode: u=rw,g=r,o=r

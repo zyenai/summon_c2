@@ -1,6 +1,6 @@
 # aws ec2 ansible dynamic inventory plugin
 plugin: aws_ec2
-aws_profile: default
+aws_profile: 546135455042_AWSPowerUserAccess
 #set aws_access_key and secret_key.
 # aws_access_key: <PUT IN YOUR AWS ACCESS KEY>
 # aws_secret_key: <PUT IN YOUR AWS SECRET KEY>
@@ -47,8 +47,8 @@ keyed_groups:
 hostnames:
 # a list in order of precedence for hostname variables.
 # 
-  - dns-name
   - ip-address
+  - dns-name
   - tag:Name
   - private-ip-address
 compose:

@@ -4,26 +4,39 @@
     - name: cobalt_strike_license
       prompt: What cobalt strike license should I use?
       private: no
-  tasks:
-  - include_vars: vars.yml
 # Get EC2 variables
-  - name: Get info from EC2 instances
-    amazon.aws.ec2_instance_info:
-      region: us-east-1
-      filters:
-        "tag:user": "{{ engagement_lead }}"
-        "tag:customer": "{{ customer }}"
-        instance-state-name: [ "pending", "running" ]
-    register: ec2  
+  tasks:
+    - name: Get info from Teamserver
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          "tag:user": "{{ engagement_lead }}"
+          "tag:customer": "{{ customer }}"
+          "tag:type": "c2_teamserver"
+          instance-state-name: [ "pending", "running" ]
+      register: teamserver
+
+    - name: Get info from Redirector
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          "tag:user": "{{ engagement_lead }}"
+          "tag:customer": "{{ customer }}"
+          "tag:type": "c2_front"
+          instance-state-name: [ "pending", "running" ]
+      register: redirector
+
 # Set hostvars  
-  - set_fact:
-      team_private_ip: "{{ ec2.instances[0]['private_ip_address'] }}"
-      team_public_ip: "{{ ec2.instances[0]['public_ip_address'] }}"
-      front_private_ip: "{{ ec2.instances[1]['private_ip_address'] }}"
-      front_public_ip: "{{ ec2.instances[1]['public_ip_address'] }}"
-      front_dns_name: "{{ ec2.instances[1]['public_dns_name'] }}"
-      glob_customer: "{{ customer }}"
-      cobalt: "{{ cobalt_strike_license }}"
+    - set_fact:
+        team_private_ip: "{{ teamserver.instances[0]['private_ip_address'] }}"
+        team_public_ip: "{{ teamserver.instances[0]['public_ip_address'] }}"
+        front_private_ip: "{{ redirector.instances[0]['private_ip_address'] }}"
+        front_public_ip: "{{ redirector.instances[0]['public_ip_address'] }}"
+        front_dns_name: "{{ redirector.instances[0]['public_dns_name'] }}"
+        glob_customer: "{{ customer }}"
+        cobalt: "{{ cobalt_strike_license }}"
 
 # Update packages on Teamserver and Redirector
 - hosts:
@@ -39,7 +52,7 @@
   - name: Upgrade the OS (apt-get dist-upgrade)
     apt:
       upgrade: dist
-  - name: Update repositories cache and install "foo" package
+  - name: Update repositories cache and install additional packages
     apt:
       pkg:
       - rsync
@@ -58,11 +71,30 @@
   - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}:&tag_type_c2_teamserver"
   become: True
   tasks:
-  - include_vars: vars.yml
+  - name: Copy resolv.conf to server
+    copy:
+      src: "./files/resolv.conf"
+      dest: "/etc/resolv.conf"
+  - service_facts:
+  - name: stop and disable systemd-resolved
+    service:
+      name: systemd-resolved
+      state: stopped
+      enabled: false
   - name: Copy Cobalt Strike License to Team Server
     template:
       src: "./files/.cobaltstrike.license"
       dest: .cobaltstrike.license
+  - name: Create Tools directory
+    file:
+      path: /home/ubuntu/Tools
+      state: directory
+      owner: ubuntu
+      group: ubuntu
+  - name: Unzip Cobalt Strike to Team server
+    unarchive:
+      src: "./files/cobaltstrike-dist-linux.tgz"
+      dest: /home/ubuntu/Tools/
   - name: Update Cobalt Strike
     ansible.builtin.expect: 
       timeout: 180
@@ -71,13 +103,96 @@
       responses:
         (?i)Please enter your license key: "{{ hostvars['localhost']['cobalt'] }}"
 
+# Add MOTD to Teamserver
+- hosts:
+  - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}:&tag_type_c2_teamserver"
+  become: True
+  tasks:
+  - name: Copy MOTD template to /etc/motd
+    template:
+      src: "./files/team_motd"
+      dest: /etc/motd
+      owner: root
+      group: root
+      mode: '644'
+  - name: Update Private IP
+    ansible.builtin.lineinfile:
+      path: /etc/motd
+      regexp: '^Private IP:'
+      line: "Private IP: {{ hostvars['localhost']['team_private_ip'] }}"
+      insertbefore: "BOF"
+      state: present
+  - name: Update Public IP
+    ansible.builtin.lineinfile:
+      path: /etc/motd
+      regexp: '^Public IP:'
+      line: "Public IP: {{ hostvars['localhost']['team_public_ip'] }}"
+      insertbefore: "BOF"
+      state: present
+  - name: Update Public IP
+    ansible.builtin.lineinfile:
+      path: /etc/motd
+      regexp: '^Redirector Public IP:'
+      line: "Redirector Public IP: {{ hostvars['localhost']['front_public_ip'] }}"
+      insertbefore: "BOF"
+      state: present
+  - name: Update MOTD Hint
+    ansible.builtin.lineinfile:
+      path: /etc/motd
+      regexp: "^To start:"
+      line: "To start the Cobalt Strike Teamserver, run: 'teamserver {{ hostvars['localhost']['front_public_ip'] }} <password> [/path/to/c2.profile] [YYYY-MM-DD]'"
+      insertbefore: "BOF"
+      state: present
+      
+# Add MOTD to Redirector
+- hosts:
+  - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}:&tag_type_c2_front"
+  become: True
+  tasks:
+  - name: Copy MOTD template to /etc/motd
+    template:
+      src: "./files/front_motd"
+      dest: /etc/motd
+      owner: root
+      group: root
+      mode: '644'
+  - name: Update Private IP
+    ansible.builtin.lineinfile:
+      path: /etc/motd
+      regexp: '^Private IP:'
+      line: "Private IP: {{ hostvars['localhost']['front_private_ip'] }}"
+      insertbefore: "BOF"
+      state: present
+  - name: Update Private IP
+    ansible.builtin.lineinfile:
+      path: /etc/motd
+      regexp: '^Public IP:'
+      line: "Public IP: {{ hostvars['localhost']['front_public_ip'] }}"
+      insertbefore: "BOF"
+      state: present
+
+# Add alias to quickly launch Cobalt Strike Teamserver
+- hosts:
+  - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}:&tag_type_c2_teamserver"
+  become: True
+  tasks:
+  - name: Add teamserver alias for ubuntu user
+    lineinfile:
+      path=/home/ubuntu/.bashrc
+      line="alias teamserver='cd /home/ubuntu/Tools/cobaltstrike/server/ && sudo ./teamserver'"
+      owner=ubuntu
+      regexp="^alias teamserver='cd /home/ubuntu/Tools/cobaltstrike/server/ && sudo ./teamserver'"
+      state=present
+      insertafter=EOF
+      create=True
+
 # Configure DNS/HTTP/HTTPS forwarding on Redirector
 - hosts:
   - "tag_customer_{{ hostvars['localhost']['glob_customer'] }}:&tag_type_c2_front"
   become: True
   tasks:
-    - include_vars: vars.yml
-    - name: Update repositories cache and install base packages
+# Set up DNS forwarding
+    - name: Install dnsmasq
       apt:
         pkg:
         - dnsmasq
@@ -103,50 +218,44 @@
         name: dnsmasq
         state: started
         enabled: true
-    - name: Forward port 80 to team server
-      ansible.builtin.iptables:
-        table: nat
-        chain: PREROUTING
-        # in_interface: ens5
-        protocol: tcp
-        match: tcp
-        destination_port: 80
-        jump: DNAT
-        to_destination: "{{ hostvars['localhost']['team_private_ip'] }}"
-        comment: Redirect web traffic to team server
-      become: yes
-    - name: Forward port 443 to team server
-      ansible.builtin.iptables:
-        table: nat
-        chain: PREROUTING
-        # in_interface: ens5
-        protocol: tcp
-        match: tcp
-        destination_port: 443
-        jump: DNAT
-        to_destination: "{{ hostvars['localhost']['team_private_ip'] }}"
-        comment: Redirect web traffic to team server
-      become: yes
-    - name: Masquerade to team server
-      ansible.builtin.iptables:
-        chain: FORWARD
-        jump: ACCEPT
-      become: yes
-    - name: Masquerade to team server
-      ansible.builtin.iptables:
-        table: nat
-        chain: POSTROUTING
-        # out_interface: ens5
-        jump: MASQUERADE
-      become: yes
-    - name: Masquerade to team server
-      ansible.builtin.iptables:
-        chain: FORWARD
-        policy: ACCEPT
-        jump: ACCEPT
-      become: yes
-    # Set ip forwarding on in /proc and verify token value with the sysctl command
     - ansible.posix.sysctl:
         name: net.ipv4.ip_forward
         value: '1'
         sysctl_set: yes
+# Set up HTTP/HTTPS forwarding
+    - name: Copy socat.sh to redirector
+      template:
+        src: "./files/socat.sh"
+        dest: "/home/ubuntu/socat.sh"
+        owner: ubuntu
+        group: ubuntu
+        mode: '755'        
+    - name: Edit socat.sh to forward HTTPS
+      ansible.builtin.lineinfile:
+        path: /home/ubuntu/socat.sh
+        regexp: '^sudo socat TCP4-LISTEN:443,fork TCP4:front_private_ip:443 >/dev/null 2>&1 &'
+        line: "sudo socat TCP4-LISTEN:443,fork TCP4:{{ hostvars['localhost']['team_private_ip'] }}:443 >/dev/null 2>&1 &"
+        insertbefore: "BOF"
+        state: present
+    - name: Edit socat.sh to forward HTTP
+      ansible.builtin.lineinfile:
+        path: /home/ubuntu/socat.sh
+        regexp: '^sudo socat TCP4-LISTEN:80,fork TCP4:front_private_ip:80 >/dev/null 2>&1 &'
+        line: "sudo socat TCP4-LISTEN:80,fork TCP4:{{ hostvars['localhost']['team_private_ip'] }}:80 >/dev/null 2>&1 &"
+        insertbefore: "BOF"
+        state: present
+    - name: Add socat.sh to ~/.profile
+      ansible.builtin.lineinfile:
+        path: /home/ubuntu/.profile
+        regexp: '^/home/ubuntu/socat.sh'
+        line: "/home/ubuntu/socat.sh"
+        insertafter: "EOF"
+        state: present
+    - name: Create a cron job to make sure socat is running every 5 minutes
+      ansible.builtin.cron:
+        name: "socat"
+        minute: "*/5"
+        job: "/home/ubuntu/socat.sh"
+        user: ubuntu
+        state: present
+        

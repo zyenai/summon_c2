@@ -1,21 +1,22 @@
 # Create an EC2 instance for our C2
 - hosts: localhost
+  become: False
   tasks:
-  - include_vars: vars.yml
   - set_fact:
       glob_customer: "{{ customer }}"
 
 # Set up AWS network infrastructure
 - hosts: localhost
+  become: False
   tasks:
-  - include_vars: vars.yml
   - name: create VPC
     amazon.aws.ec2_vpc_net:
       name: "{{ engagement_lead }}_{{ customer }}_VPC"
       cidr_block: "{{ subnet_cidr }}"
-      region: us-east-1
+      region: "{{ aws_region }}"
       state: present
       tenancy: dedicated  
+      profile: "{{ aws_profile }}"
       tags:
         customer: "{{ customer }}"
         c2: all_systems
@@ -26,9 +27,10 @@
       state: present
       vpc_id: "{{ vpc.vpc.id }}"
       cidr: "{{ subnet_cidr }}"
-      region: us-east-1
+      region: "{{ aws_region }}"
       az: "{{ availability_zone }}"
       map_public: yes
+      profile: "{{ aws_profile }}"
       tags:
         customer: "{{ customer }}"
         c2: all_systems
@@ -37,8 +39,9 @@
   - name: create internet gateway
     amazon.aws.ec2_vpc_igw:
       vpc_id: "{{ vpc.vpc.id }}"
-      region: us-east-1
+      region: "{{ aws_region }}"
       state: present
+      profile: "{{ aws_profile }}"
       tags:
         customer: "{{ customer }}"
         c2: all_systems
@@ -47,8 +50,9 @@
   - name: create route table
     amazon.aws.ec2_vpc_route_table:
       vpc_id: "{{ vpc.vpc.id }}"
-      region: us-east-1
+      region: "{{ aws_region }}"
       subnets: "{{ subnet.subnet.id }}"
+      profile: "{{ aws_profile }}"
       routes:
         - dest: 0.0.0.0/0
           gateway_id: "{{ igw.gateway_id }}"
@@ -61,15 +65,18 @@
       name: "{{ engagement_lead }}_{{ customer }}_SG_Front"
       description: allow ssh, http, and https
       vpc_id: "{{ vpc.vpc.id }}"
-      region: us-east-1
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
       rules:
         - proto: tcp
           ports: 22
           cidr_ip: "{{ local_ip }}"
         - proto: tcp
           ports: 53
+          cidr_ip: 0.0.0.0/0
         - proto: udp 
           ports: 53
+          cidr_ip: 0.0.0.0/0
         - proto: tcp
           ports: 80
           cidr_ip: 0.0.0.0/0
@@ -82,7 +89,8 @@
       name: "{{ engagement_lead }}_{{ customer }}_SG_Teamserver"
       description: allow ssh
       vpc_id: "{{ vpc.vpc.id }}"
-      region: us-east-1
+      region: "{{ aws_region }}"
+      profile: "{{ aws_profile }}"
       rules:
         - proto: tcp
           ports: 22
@@ -90,18 +98,31 @@
         - proto: tcp
           ports: 22
           cidr_ip: "{{ subnet_cidr }}"
+        - proto: tcp
+          ports: 53
+          cidr_ip: "{{ subnet_cidr }}"
+        - proto: udp 
+          ports: 53
+          cidr_ip: "{{ subnet_cidr }}"
+        - proto: tcp
+          ports: 80
+          cidr_ip: "{{ subnet_cidr }}"
+        - proto: tcp
+          ports: 443
+          cidr_ip: "{{ subnet_cidr }}"
     register: sg_team
 
 # Create Fronting Server
   - name: Create Redirector
     amazon.aws.ec2_instance:
-      region: us-east-1
+      region: "{{ aws_region }}"
       name: "{{ engagement_lead }}_{{ customer }}_C2_Front"
       instance_type: t3.small
       image_id: "{{ image_id }}"
       key_name: "{{ key_name }}"
       security_group: "{{ sg_front.group_id }}"
       vpc_subnet_id: "{{ subnet.subnet.id }}"
+      profile: "{{ aws_profile }}"
       network:
         assign_public_ip: yes
       wait: yes
@@ -115,13 +136,14 @@
 # Create Cobalt Strike Team Server
   - name: Create Teamserver
     ec2_instance:
-      region: us-east-1
+      region: "{{ aws_region }}"
       name: "{{ engagement_lead }}_{{ customer }}_C2_Teamserver"
       key_name: "{{ key_name }}"
       instance_type: t3.medium
       image_id: "{{ image_id }}"
       security_group: "{{ sg_team.group_id }}"
       vpc_subnet_id: "{{ subnet.subnet.id }}"
+      profile: "{{ aws_profile }}"
       network:
         assign_public_ip: yes
       wait: yes
@@ -143,51 +165,100 @@
   - localhost
   become: False
   tasks:
-    - include_vars: vars.yml
 # Get EC2 variables
-    - name: Get info from EC2 instances
+    - name: Get info from Teamserver
       amazon.aws.ec2_instance_info:
-        region: us-east-1
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
         filters:
           "tag:user": "{{ engagement_lead }}"
           "tag:customer": "{{ customer }}"
+          "tag:type": "c2_teamserver"
           instance-state-name: [ "pending", "running" ]
-      register: ec2    
+      register: teamserver
     - set_fact:
-        team_private_ip: "{{ ec2.instances[0]['private_ip_address'] }}"
-        team_public_ip: "{{ ec2.instances[0]['public_ip_address'] }}"
-        front_private_ip: "{{ ec2.instances[1]['private_ip_address'] }}"
-        front_public_ip: "{{ ec2.instances[1]['public_ip_address'] }}"
-        front_dns_name: "{{ ec2.instances[1]['public_dns_name'] }}"
-# Create SSH config
+        team_private_ip: "{{ teamserver.instances[0]['private_ip_address'] }}"
+        team_public_ip: "{{ teamserver.instances[0]['public_ip_address'] }}"
+
+    - name: Get info from Redirector
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        filters:
+          "tag:user": "{{ engagement_lead }}"
+          "tag:customer": "{{ customer }}"
+          "tag:type": "c2_front"
+          instance-state-name: [ "pending", "running" ]
+      register: redirector       
+    - set_fact: 
+        front_private_ip: "{{ redirector.instances[0]['private_ip_address'] }}"
+        front_public_ip: "{{ redirector.instances[0]['public_ip_address'] }}"
+        front_dns_name: "{{ redirector.instances[0]['public_dns_name'] }}"
+
+# Create SSH config if it doesn't exist
+    - name: Ensure ~/.ssh/config exists
+      ansible.builtin.file:
+        path: ~/.ssh/config
+        state: touch
+        mode: '0600'
+        modification_time: preserve
+        access_time: preserve
+      delegate_to: localhost
+
+# Create engagement-specific SSH config
     - name: Create SSH config file
       template:
         src: "./files/config.template"
         dest: "~/.ssh/config_{{ customer }}"
       delegate_to: localhost
+
 # Link config
     - name: Link SSH config file
       ansible.builtin.lineinfile:
         path: ~/.ssh/config
         regexp: '^Include config_'
         line: Include config_{{ customer }}
+        insertbefore: "BOF"
         state: present
+
+# Create DNS records in Route 53
+    - name: Add an A record
+      amazon.aws.route53:
+        profile: "{{ aws_profile }}"
+        state: present
+        zone: dragoat.com
+        record: "{{ customer }}.dragoat.com"
+        type: A
+        ttl: 60
+        value: "{{ redirector.instances[0]['public_ip_address'] }}"
+        overwrite: True
+    - name: Add an NS record 
+      amazon.aws.route53:
+        profile: "{{ aws_profile }}"
+        state: present
+        zone: dragoat.com
+        record: "{{ c2_subdomain }}"
+        type: NS
+        ttl: 60
+        value: "{{ customer }}.dragoat.com"
+        overwrite: True
+
 # Print C2 infrastructure info
     - name: Print C2 infrastructure info
       ansible.builtin.debug:
         msg: 
-          - VPC ID {{ vpc.vpc.id }}
-          - Subnet ID {{ subnet.subnet.id}}
-          - Subnet CIDR {{ subnet_cidr }}
-          - Gateway ID {{ igw.gateway_id }}
-          - Teamserver Instance ID {{ ec2.instances[0]['instance_id'] }}
-          - Teamserver Security Group ID {{ sg_team.group_id }}
-          - Teamserver Private IP {{ ec2.instances[0]['private_ip_address'] }}
-          - Teamserver Public IP {{ ec2.instances[0]['public_ip_address'] }}
-          - Teamserver Public DNS {{ ec2.instances[0]['public_dns_name'] }}
-          - Redirector Instance ID {{ ec2.instances[1]['instance_id'] }}
-          - Redirector Security Group ID {{ sg_front.group_id }}
-          - Redirector Private IP {{ ec2.instances[1]['private_ip_address'] }}
-          - Redirector Public IP {{ ec2.instances[1]['public_ip_address'] }}
-          - Redirector Public DNS {{ ec2.instances[1]['public_dns_name'] }}
-          - Redirector Instance ID {{ ec2.instances[1]['instance_id'] }}
+          - VPC ID - {{ vpc.vpc.id }}
+          - Subnet ID - {{ subnet.subnet.id}}
+          - Subnet CIDR - {{ subnet_cidr }}
+          - Gateway ID - {{ igw.gateway_id }}
+          - Teamserver Instance ID - {{ teamserver.instances[0]['instance_id'] }}
+          - Teamserver Security Group ID - {{ sg_team.group_id }}
+          - Teamserver Private IP - {{ teamserver.instances[0]['private_ip_address'] }}
+          - Teamserver Public IP - {{ teamserver.instances[0]['public_ip_address'] }}
+          - Teamserver Public DNS - {{ teamserver.instances[0]['public_dns_name'] }}
+          - Redirector Instance ID - {{ redirector.instances[0]['instance_id'] }}
+          - Redirector Security Group ID - {{ sg_front.group_id }}
+          - Redirector Private IP - {{ redirector.instances[0]['private_ip_address'] }}
+          - Redirector Public IP - {{ redirector.instances[0]['public_ip_address'] }}
+          - Redirector Public DNS - {{ redirector.instances[0]['public_dns_name'] }}
+          - Cobalt Strike DNS Host - {{ c2_subdomain }} 

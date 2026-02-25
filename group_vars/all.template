@@ -1,0 +1,13 @@
+# ./group_vars/all.yml
+ansible_ssh_private_key_file: ~/.ssh/<key_name>
+ansible_user: ubuntu
+aws_profile: 546135455042_AWSPowerUserAccess
+aws_region: us-east-1
+availability_zone: us-east-1a
+c2_subdomain: <subdomain>.dragoat.com
+customer: <customer_name>
+engagement_lead: <el_name>
+image_id: ami-007855ac798b5175e
+key_name: <key_name>
+local_ip: <your_public_ip/24>
+subnet_cidr: <10.x.x.0/24>
