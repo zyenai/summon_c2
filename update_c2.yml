@@ -57,7 +57,7 @@
       pkg:
       - rsync
       - ca-certificates
-      - openjdk-11-jdk
+      - openjdk-17-jdk
       - screen
       - tmux
       - net-tools
